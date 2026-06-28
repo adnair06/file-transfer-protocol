@@ -1,5 +1,6 @@
 #include <iostream> 
 #include <string> 
+#include <fstream>
 #include <algorithm>
 
 #include <winsock2.h> //Contains all functions to create a socket, bind to an IP address and recieve from. 
@@ -22,31 +23,62 @@ int main() {
         return 1;
     }
 
-    Packet packet; 
-    std::string data = "Hello, world!"; 
-    packet.data_length = data.length();
-    packet.data.fill(0); 
-    std::copy(data.begin(), data.end(), packet.data.begin()); 
-    packet.type = PacketType::DATA; 
-    packet.sequence_number = 0; 
-
     sockaddr_in receiver_address{}; 
     receiver_address.sin_family = AF_INET; 
     receiver_address.sin_port = htons(5000); 
     receiver_address.sin_addr.s_addr = htonl(INADDR_LOOPBACK); 
-    
     int receiver_address_size = sizeof(receiver_address); 
-    int bytes_sent = sendto(sender_socket, reinterpret_cast<char*>(&packet), sizeof(packet), 0, reinterpret_cast<sockaddr*>(&receiver_address), receiver_address_size);
-
-    if (bytes_sent == SOCKET_ERROR) {
-        std::cout << "Send failed." << '\n'; 
-
+    
+    std::ifstream input("../sender/send.txt", std::ios::binary); 
+    if (!input) {
+        std::cout << "Failed to open file." << '\n'; 
         closesocket(sender_socket); 
-        WSACleanup(); 
+        WSACleanup();
         return 1; 
     }
 
-    std::cout << "Packet sent successfully!\n";
+    Packet startpacket{}; 
+    startpacket.type = PacketType::START; 
+    int startBytesSent = sendto(sender_socket, reinterpret_cast<char*>(&startpacket), sizeof(startpacket), 0, reinterpret_cast<sockaddr*>(&receiver_address), receiver_address_size); 
+    if (startBytesSent == SOCKET_ERROR) {
+        std::cout << "No bytes sent."; 
+        closesocket(sender_socket); 
+        WSACleanup(); 
+        return 1;
+    }
+
+    uint32_t sequence_number = 0; 
+    while (true) {
+        Packet packet{}; 
+        input.read(packet.data.data(), packet.data.size()); 
+        std::streamsize bytes_read = input.gcount(); 
+        if (bytes_read == 0) {
+            break; 
+        }
+        packet.type = PacketType::DATA; 
+        packet.sequence_number = sequence_number++; 
+        packet.data_length = static_cast<uint32_t>(bytes_read);
+
+        int bytes_sent = sendto(sender_socket, reinterpret_cast<char*>(&packet), sizeof(packet), 0, reinterpret_cast<sockaddr*>(&receiver_address), receiver_address_size); 
+        if (bytes_sent == SOCKET_ERROR) {
+            std::cout << "No bytes sent."; 
+            closesocket(sender_socket); 
+            WSACleanup(); 
+            return 1; 
+        }
+    }
+
+    Packet endpacket{}; 
+    endpacket.type = PacketType::END; 
+    int endBytesSent = sendto(sender_socket, reinterpret_cast<char*>(&endpacket), sizeof(endpacket), 0, reinterpret_cast<sockaddr*>(&receiver_address), receiver_address_size);
+    if (endBytesSent == SOCKET_ERROR) {
+        std::cout << "No bytes sent."; 
+        closesocket(sender_socket); 
+        WSACleanup(); 
+        return 1;
+    }
+
+    std::cout << "File sent successfully!\n";
     closesocket(sender_socket); 
     WSACleanup(); 
     return 0; 

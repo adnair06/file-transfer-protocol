@@ -1,4 +1,5 @@
 #include <iostream> 
+#include <fstream>
 
 #include <winsock2.h> //Contains all functions to create a socket, bind to an IP address and recieve from. 
 #include <ws2tcpip.h> //Contains helper functions to work with IP addresses. 
@@ -40,39 +41,47 @@ int main() {
         return 1; 
     }
 
-    std::cout << "Listening on 127.0.0.1:5000...\n";
-
-    Packet packet; 
+    std::cout << "Listening on 127.0.0.1:5000...\n"; 
 
     sockaddr_in sender_address{}; 
     int sender_address_size = sizeof(sender_address); 
 
-    int bytes_received = recvfrom(receiver_socket, reinterpret_cast<char*>(&packet), sizeof(packet), 0, reinterpret_cast<sockaddr*>(&sender_address), &sender_address_size); 
-    if (bytes_received == SOCKET_ERROR) {
-        std::cout << "Receive failed." << '\n'; 
+    Packet startPacket{}; 
+    int bytes_received = recvfrom(receiver_socket, reinterpret_cast<char*>(&startPacket), sizeof(startPacket), 0, reinterpret_cast<sockaddr*>(&sender_address), &sender_address_size); 
+    if (startPacket.type != PacketType::START || bytes_received == SOCKET_ERROR) {
+        std::cout << "Program did not start." << '\n'; 
         closesocket(receiver_socket); 
         WSACleanup(); 
         return 1; 
     }
 
-    if (bytes_received != sizeof(packet)) {
-        std::cout << "Incomplete packet received." << '\n'; 
-        closesocket(receiver_socket);
-        WSACleanup();
+    Packet packet{}; 
+    std::ofstream output;
+    output.open("../receiver/read.txt", std::ios::binary); 
+    if (!output) {
+        std::cout << "Failed to open output file." << '\n'; 
+        closesocket(receiver_socket); 
+        WSACleanup(); 
         return 1; 
+    } 
+
+    while (true) {
+        int bytes_received = recvfrom(receiver_socket, reinterpret_cast<char*>(&packet), sizeof(packet), 0, reinterpret_cast<sockaddr*>(&sender_address), &sender_address_size); 
+        if (bytes_received == SOCKET_ERROR) {
+            std::cout << "Error in receiving packets." << '\n'; 
+            closesocket(receiver_socket); 
+            WSACleanup(); 
+            return 1; 
+        }
+
+        if (packet.type == PacketType::DATA) {
+            output.write(packet.data.data(), packet.data_length); 
+        } else if (packet.type == PacketType::END) {
+            output.close(); 
+            break; 
+        }
     }
 
-    std::cout << "Received packet!\n";
-    std::cout << "Type: " << static_cast<int>(packet.type) << '\n';
-    std::cout << "Sequence: " << packet.sequence_number << '\n';
-    std::cout << "Length: " << packet.data_length << '\n';
-
-    for (size_t i = 0; i < packet.data_length; i++)
-    {
-        std::cout << packet.data[i];
-    }
-
-    std::cout << '\n';
     closesocket(receiver_socket);
     WSACleanup();
 
