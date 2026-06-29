@@ -7,7 +7,8 @@ enum class PacketType {
     START, 
     DATA, 
     ACK, 
-    END
+    END, 
+    ERR
 };
 
 struct Packet {

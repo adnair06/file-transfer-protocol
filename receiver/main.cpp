@@ -65,17 +65,61 @@ int main() {
         return 1; 
     } 
 
+    DWORD timeout = 15000; 
+    if (setsockopt(receiver_socket, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<char*>(&timeout), sizeof(timeout)) == SOCKET_ERROR) {
+        std::cout << "Failed to set socket timeout." << '\n'; 
+        closesocket(receiver_socket); 
+        WSACleanup(); 
+
+        return 1; 
+    }
+
     while (true) {
         int bytes_received = recvfrom(receiver_socket, reinterpret_cast<char*>(&packet), sizeof(packet), 0, reinterpret_cast<sockaddr*>(&sender_address), &sender_address_size); 
         if (bytes_received == SOCKET_ERROR) {
-            std::cout << "Error in receiving packets." << '\n'; 
-            closesocket(receiver_socket); 
-            WSACleanup(); 
+            int error = WSAGetLastError();
+            if (error == WSAETIMEDOUT) {
+                std::cout << "Receiver timed out." << '\n'; 
+                closesocket(receiver_socket); 
+                WSACleanup();  
+            } else {
+                std::cout << "Error in receiving packets." << '\n'; 
+                closesocket(receiver_socket); 
+                WSACleanup(); 
+            }
+
+            output.close();
+            std::remove("../receiver/read.txt");    
             return 1; 
+        }
+
+        if (bytes_received != sizeof(Packet)) {
+            continue; 
         }
 
         if (packet.type == PacketType::DATA) {
             output.write(packet.data.data(), packet.data_length); 
+            Packet ACKpacket{}; 
+            ACKpacket.type = PacketType::ACK; 
+            ACKpacket.sequence_number = packet.sequence_number; 
+            int bytes_sent = sendto(receiver_socket, reinterpret_cast<char*>(&ACKpacket), sizeof(ACKpacket), 0, reinterpret_cast<sockaddr*>(&sender_address), sender_address_size);
+            if (bytes_sent == SOCKET_ERROR) {
+                std::cout << "Failed to send ACK." << '\n'; 
+
+                output.close(); 
+                closesocket(receiver_socket); 
+                WSACleanup(); 
+
+                return 1; 
+            }
+        } else if (packet.type == PacketType::ERR){
+            std::cout << "Error occured while transferring the file." << '\n'; 
+            closesocket(receiver_socket); 
+            WSACleanup(); 
+            output.close();
+            std::remove("../receiver/read.txt");
+
+            return 1; 
         } else if (packet.type == PacketType::END) {
             output.close(); 
             break; 
