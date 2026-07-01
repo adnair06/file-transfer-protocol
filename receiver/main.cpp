@@ -74,6 +74,7 @@ int main() {
         return 1; 
     }
 
+    size_t expected = 1; 
     while (true) {
         int bytes_received = recvfrom(receiver_socket, reinterpret_cast<char*>(&packet), sizeof(packet), 0, reinterpret_cast<sockaddr*>(&sender_address), &sender_address_size); 
         if (bytes_received == SOCKET_ERROR) {
@@ -98,7 +99,11 @@ int main() {
         }
 
         if (packet.type == PacketType::DATA) {
-            output.write(packet.data.data(), packet.data_length); 
+            if (packet.sequence_number == expected) {
+                output.write(packet.data.data(), packet.data_length);
+                expected++; 
+            }
+            
             Packet ACKpacket{}; 
             ACKpacket.type = PacketType::ACK; 
             ACKpacket.sequence_number = packet.sequence_number; 
